@@ -1,0 +1,26 @@
+# Minecraft (Java Edition) — Mineflayer backend.
+game_id: minecraft
+backend: mineflayer
+
+server:
+  host: localhost
+  port: 25565
+  container: minecraft_server  # docker container name, for chat log parsing
+  version: null                # null = auto-detect; mineflayer supports up to 26.1
+  auth: microsoft              # microsoft (online-mode servers) | offline
+
+bridge:
+  manage: true                 # launch the Node bridge as a subprocess
+  host: 127.0.0.1
+  port: 3001
+  action_timeout_s: 120
+  auto_eat: true
+  log_file: logs/bridge.log
+
+# Hints injected into the system prompt for this game.
+prompt_notes: |
+  Minecraft basics: y is vertical. Progression: logs -> planks -> sticks -> crafting_table ->
+  wooden_pickaxe -> cobblestone (mine stone) -> stone tools -> furnace -> iron (mine iron_ore,
+  smelt raw_iron with fuel) -> iron tools. Most tools need a crafting_table nearby; craft_item
+  places one from your inventory automatically if needed. Hostile mobs spawn at night and in the dark.
+  Prefer collect_block over mine_block: it finds, walks to, mines and picks up blocks for you.

@@ -1,0 +1,52 @@
+# Player Two — main settings.
+# Per-game settings live in config/games/<game>.yaml, persona in config/persona.md.
+
+game: minecraft
+
+agent:
+  name: PlayerTwo              # in-game name; also the chat keyword trigger
+  aliases: ["player two", "player2", "p2"]
+  owner: CinnamonLatte         # only this player can give instructions; empty = anyone
+  persona_file: config/persona.md
+
+llm:
+  base_url: http://localhost:1234/v1
+  api_key: lm-studio
+  model: openai/gpt-oss-20b    # action loop: fast (~4s/step) and handles multi-step tasks well
+  planner_model: openai/gpt-oss-120b  # autonomous goal selection: slower, better judgement
+  reasoning_effort: low        # low | medium | high (gpt-oss); null to omit
+  temperature: 0.4
+  max_tokens: 2048
+  request_timeout_s: 300
+  # Optional: re-voice chat replies through a roleplay model to match the persona.
+  # Slow (skyfall-31b runs ~10 tok/s), so off by default.
+  persona_voice:
+    enabled: false
+    model: skyfall-31b-v4w
+    max_tokens: 120
+
+loop:
+  max_steps_player_task: 25    # tool calls per player instruction
+  max_steps_autonomous: 12     # tool calls per autonomous goal
+  history_messages: 24         # tool-loop messages kept before trimming
+
+comms:
+  sources: [docker, bridge]    # docker = container log parsing, bridge = mineflayer chat events
+  dedup_window_s: 6            # identical (sender, text) within this window is ignored
+  followup_window_s: 45        # after the agent replies, the player's next messages count as addressed
+  nearby_radius: 32            # "you" with no *other* players within this radius => addressed to agent
+
+autonomy:
+  enabled: true
+  idle_before_autonomy_s: 30   # quiet time after a player task before acting on its own
+  pause_while_following: true  # don't wander off while following the player
+  react_to_damage: true        # being hurt interrupts autonomous work to deal with it
+
+# Game server lifecycle API (GET <base_url>/<game_id>/<cmd>). Leave base_url empty to skip.
+server_api:
+  base_url: ""                 # e.g. http://localhost:5001
+  auto_start: false
+
+logging:
+  level: INFO
+  file: logs/player-two.log

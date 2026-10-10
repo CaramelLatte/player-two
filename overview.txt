@@ -1,0 +1,188 @@
+================================================================================
+PLAYER TWO — PROJECT OVERVIEW
+================================================================================
+
+SUMMARY
+
+Player Two is an AI-powered gaming companion designed to play alongside a human
+player as a fully autonomous agent. It runs its own game client, reads game
+state from the environment, and executes actions through a suite of high-level
+tool primitives. It responds to player instruction via in-game chat, prioritises
+player-given tasks over its own autonomous goals, and is designed from the outset
+to be portable across a defined suite of games.
+
+--------------------------------------------------------------------------------
+TARGET GAMES
+
+The following games share enough thematic and mechanical overlap to justify a
+shared architecture. All are hosted as private servers, so anti-cheat can be
+disabled where needed without issue.
+
+  - Minecraft (Java Edition)    <-- active development target
+  - Terraria
+  - Starbound
+  - Valheim
+  - V Rising
+  - 7 Days to Die
+  - Palworld
+
+Development begins with Minecraft exclusively. The architecture is designed with
+future game expansion in mind from day one, so that adding new games requires
+minimal refactoring.
+
+--------------------------------------------------------------------------------
+HARDWARE & ENVIRONMENT
+
+Primary machine:
+  - AMD AI Max 395+ APU (unified memory architecture)
+  - 128 GB unified RAM (up to 96 GB allocatable to a single LLM at a time)
+  - Nobara Linux (Fedora-based, no discrete NVIDIA GPU)
+  - KDE Plasma desktop with a configured virtual display
+  - Sunshine streaming server for remote desktop/game streaming access
+  - All game servers run in Docker containers on this machine
+
+Backup machine (secondary, available if load balancing is needed):
+  - Headless Linux server
+  - 16 GB RAM, 12th Gen Intel CPU
+  - Connected to the primary machine via Tailscale
+
+--------------------------------------------------------------------------------
+EXISTING INFRASTRUCTURE
+
+LM Studio
+  - Running at http://localhost:1234
+  - Serves OpenAI-compatible inference endpoints
+  - Primary models:
+      gpt-oss-120b   (~59 GB, ~25 tokens/sec)  -- default reasoning model
+      skyfall-31b    (~31 GB, ~10 tokens/sec)  -- Slow/Dense roleplay model
+  - Additional models can be acquired or run in parallel as needed
+
+Game Server API
+  - A GET endpoint exists at http://localhost:<port>/<game_id>/<cmd>
+  - Currently used for <start> and <stop> container lifecycle commands
+  - Can be extended to pass arbitrary commands into running server processes
+    (docker exec equivalent via HTTP) — considered trivial to add when needed
+
+Voxta
+  - Running at http://localhost:5384
+  - Provides voice interface and persona definitions for the agent
+  - Integration is PLANNED BUT OUT OF SCOPE for the initial build
+  - Keep integration points clean so voice support can be added later
+
+--------------------------------------------------------------------------------
+LANGUAGE & PROJECT STRUCTURE
+
+  Language:   Python (core agent) + Node.js (Mineflayer bridge)
+
+  player-two/
+    core/           # LLM client, tool-call loop, goal planner
+    game_state/     # Mineflayer bridge, state parsing and formatting
+    actions/        # Tool definitions and their per-game implementations
+    comms/          # Log parser, player intent extraction
+    config/         # Game configs, agent persona, model settings
+
+--------------------------------------------------------------------------------
+ARCHITECTURE
+
+Agent Action Model (Tool-Calling Pattern)
+
+The agent does not issue raw input commands. Instead, the LLM selects from a
+defined set of high-level action primitives (tools). Each tool has a clean
+interface and a game-specific implementation underneath it. Examples:
+
+  move_to_position(x, y, z)
+  mine_block(x, y, z)
+  craft_item(item_name, quantity)
+  attack_entity(entity_id)
+  follow_player(player_name)
+  respond_to_player(message)
+  get_game_state()
+
+The LLM receives formatted game state as context, selects a tool, and the code
+executes it. Results are returned to the LLM for the next decision.
+
+Game State Layer (per-game, swappable)
+
+  Minecraft:    Mineflayer (Node.js) — provides rich programmatic game state
+                AND handles action execution via its own bot API. Mineflayer
+                is used for both reading and acting in Minecraft.
+
+  Future games: Text-parseable state sources where available; vision processing
+                as a fallback for games that don't expose clean text output.
+
+Input Layer (universal, for future games)
+
+  uinput (Linux kernel virtual input) will be the universal action execution
+  layer when Mineflayer is not available. This module is to be built in
+  parallel during the Minecraft phase and will be ready before the second game
+  is added. Each high-level tool will have both a Mineflayer implementation and
+  a uinput implementation, selected based on the active game.
+
+Player Communication
+
+  - Container logs are parsed continuously to extract in-game chat messages
+  - A deduplication/cooldown system prevents the same message triggering twice
+  - Keyword trigger: the agent responds when its name appears in a message
+  - Context inference: pronouns like "you" with no other players nearby are
+    treated as addressed to the agent
+  - Agent responses are sent back as in-game chat text (via Mineflayer for
+    Minecraft), and later via Voxta voice output
+
+Autonomous Behaviour
+
+  - When no player instruction is active, the agent pursues LLM-driven goals
+    appropriate to the current game state (gather resources, explore, build, etc.)
+  - Player instructions always take priority over autonomous goals
+  - Autonomous goal selection is LLM-driven; predetermined fallback logic can
+    be introduced if performance becomes an issue
+
+--------------------------------------------------------------------------------
+MILESTONE 1 (CURRENT TARGET)
+
+A minimal working loop in Minecraft:
+  1. Mineflayer bridge connects to the server and exposes game state
+  2. Log parser detects a player message addressed to the agent
+  3. Game state + player message are sent to the LLM with the tool set
+  4. The LLM returns a tool call; the agent executes it
+  5. Result is returned to the LLM; loop continues
+
+Everything else builds on top of this loop.
+
+--------------------------------------------------------------------------------
+FUTURE FEATURES (NOT IN CURRENT SCOPE)
+
+  - Voice interaction via Voxta (once text interaction is stable)
+  - Proactive conversation (agent initiates, not just responds)
+  - Vision processing for games without clean text state output
+  - Multi-player support (agent interacts with any player, not just the owner)
+  - uinput action layer for non-Minecraft games
+  - Matrix bot as voice chat bridge between players and Voxta
+
+--------------------------------------------------------------------------------
+NOTES
+
+  - The agent has its own licensed copy of each game
+  - The virtual display is already configured and functional (required for
+    Sunshine streaming and headless game client operation)
+  - Voxta has a persistent memory system with automatic context summarisation;
+    this may be relevant once voice integration begins
+  - These details are living documentation — update as the project evolves
+--------------------------------------------------------------------------------
+STATUS & DECISIONS (2026-10-09)
+
+  Milestone 1: COMPLETE. Verified end to end against an offline 26.1 test server
+  (chat -> LLM -> tools -> result loop, follow/stop, preemption, autonomy, and
+  multi-step chains like "bring me 2 iron ingots" from a bare inventory).
+
+  - Mineflayer 4.39 supports Minecraft up to 26.1. The existing server
+    (minecraft_server) runs 26.2, so the bot cannot join it until the server is
+    pinned to 26.1 or Mineflayer adds 26.2 support.
+  - Default action model: gpt-oss-20b (~4s/step). gpt-oss-120b (15-30s/step) is
+    used for autonomous goal planning only. Both can be changed in settings.yaml.
+  - LM Studio randomly rejects ~15-30% of gpt-oss samples ("does not match the
+    expected format"). The LLM client resamples automatically.
+  - Chat input: docker container logs AND the bot's own client, deduplicated.
+  - Bridge <-> core transport: local HTTP (state, long-poll events, actions).
+  - uinput layer: scaffold only (actions/uinput/). Built out with game #2.
+
+================================================================================
